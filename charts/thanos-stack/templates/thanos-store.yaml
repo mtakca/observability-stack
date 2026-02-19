@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-store
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: thanos-store
+    component: store
+spec:
+  serviceName: thanos-store
+  replicas: {{ .Values.store.replicas | default 2 }}
+  selector:
+    matchLabels:
+      app: thanos-store
+  template:
+    metadata:
+      labels:
+        app: thanos-store
+        thanos-store-api: "true"
+        component: store
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values: ["thanos-store"]
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: thanos-store
+        image: {{ .Values.thanosImage }}
+        args:
+          - "store"
+          - "--grpc-address=0.0.0.0:10901"
+          - "--http-address=0.0.0.0:10902"
+          - "--objstore.config-file=/etc/thanos/objstore.yml"
+          {{- if .Values.store.persistence.enabled }}
+          - "--data-dir=/data"
+          {{- else }}
+          - "--data-dir=/tmp/thanos-store"
+          {{- end }}
+          - "--index-cache-size=250MB"
+          - "--chunk-pool-size=2GB"
+          - "--store.grpc.series-sample-limit=300000"
+          - "--store.grpc.series-max-concurrency=20"
+          - "--sync-block-duration=3m"
+          - "--block-sync-concurrency=20"
+          - "--store.limits.request-series=10000000"
+          - "--store.limits.request-samples=10000000"
+        ports:
+        - containerPort: 10901
+          name: grpc
+        - containerPort: 10902
+          name: http
+        volumeMounts:
+        {{- if .Values.store.persistence.enabled }}
+        - name: data
+          mountPath: /data
+        {{- else }}
+        - name: temp-storage
+          mountPath: /tmp/thanos-store
+        {{- end }}
+        - name: objstore-config
+          mountPath: /etc/thanos
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 10902
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 8
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 10902
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 20
+      volumes:
+      - name: objstore-config
+        secret:
+          secretName: thanos-objstore-config
+      {{- if not .Values.store.persistence.enabled }}
+      - name: temp-storage
+        emptyDir: {}
+      {{- end }}
+  {{- if .Values.store.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- if and .Values.store.persistence .Values.store.persistence.storageClass }}
+      storageClassName: {{ .Values.store.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.store.persistence.size | default "10Gi" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-store
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: thanos-store
+spec:
+  selector:
+    app: thanos-store
+  ports:
+  - name: grpc
+    port: 10901
+    targetPort: 10901
+  - name: http
+    port: 10902
+    targetPort: 10902

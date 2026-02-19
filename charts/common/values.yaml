@@ -1,0 +1,16 @@
+postgres:
+  username: "grafana"
+  password: "change-me"
+  storageSize: 2Gi
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "1024Mi"
+      cpu: "1"
+
+grafana:
+  admin_password: "change-me"
+  alerting:
+    createConfigMap: true

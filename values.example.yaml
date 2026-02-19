@@ -1,0 +1,711 @@
+# values.example.yaml — copy to values.<env>.yaml before use
+# Replace all <PLACEHOLDER> values with your environment config.
+
+global:
+  namespace: observability
+
+  ingressCerts:
+    internal:
+      crt: "<BASE64_ENCODED_TLS_CERTIFICATE>"
+      key: "<BASE64_ENCODED_TLS_PRIVATE_KEY>"
+
+  objectStorage:
+    endpoint: "minio.storage.svc:9000"
+    accessKey: "<MINIO_ACCESS_KEY>"
+    secretKey: "<MINIO_SECRET_KEY>"
+
+common:
+  postgres:
+    username: "grafana"
+    password: "<POSTGRES_PASSWORD>"
+    storageSize: 2Gi
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "1024Mi"
+        cpu: "1"
+
+  grafana:
+    admin_password: "<GRAFANA_ADMIN_PASSWORD>"
+    alerting:
+      createConfigMap: false
+
+# --- Grafana HA ---
+grafana:
+  enabled: true
+  replicas: 2
+  plugins: []
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPU: "75"
+    targetMemory: "80"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+
+  persistence:
+    enabled: false # PostgreSQL handles state
+
+  env:
+    GF_DATABASE_TYPE: postgres
+    GF_DATABASE_HOST: postgres-grafana:5432
+    GF_DATABASE_NAME: grafana
+    GF_INSTALL_PLUGINS: ""
+    GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: "*"
+
+  envFromSecret: grafana-secrets
+
+  admin:
+    existingSecret: grafana-secrets
+    userKey: GF_SECURITY_ADMIN_USER
+    passwordKey: GF_SECURITY_ADMIN_PASSWORD
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/affinity: "cookie"
+      nginx.ingress.kubernetes.io/session-cookie-name: "grafana_affinity"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    tls:
+      - secretName: ingress-internal-tls
+        hosts:
+          - grafana.example.com
+    hosts:
+      - grafana.example.com
+
+  grafana.ini:
+    dataproxy:
+      timeout: 300
+      dial_timeout: 30
+      keep_alive_seconds: 300
+    unified_alerting:
+      enabled: true
+      evaluation_timeout: 3m
+    alerting:
+      enabled: false
+
+  alerting:
+    contactpoints.yaml:
+      apiVersion: 1
+      contactPoints:
+        - orgId: 1
+          name: "teams-webhook"
+          receivers:
+            - uid: teams-webhook
+              type: teams
+              settings:
+                url: "<TEAMS_WEBHOOK_URL>"
+                httpMethod: "POST"
+
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folderAnnotation: grafana_folder
+      provider:
+        allowUiUpdates: true
+        foldersFromFilesStructure: true
+    alerts:
+      enabled: true
+      label: grafana_alert
+      labelValue: "1"
+      searchNamespace: ALL
+
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: "loki"
+          orgId: 1
+          folder: "Loki"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/loki
+        - name: "prometheus"
+          orgId: 1
+          folder: "Prometheus"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/prometheus
+        - name: "tempo"
+          orgId: 1
+          folder: "Tempo"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/tempo
+        - name: "kubernetes"
+          orgId: 1
+          folder: "Kubernetes"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/kubernetes
+        - name: "node-exporter"
+          orgId: 1
+          folder: "Node Exporter"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/node-exporter
+        - name: "thanos"
+          orgId: 1
+          folder: "Thanos"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/thanos
+        - name: "other"
+          orgId: 1
+          folder: "Other"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/other
+
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Thanos
+          type: prometheus
+          uid: Prometheus
+          access: proxy
+          url: http://thanos-query:9090
+          isDefault: true
+          editable: false
+          jsonData:
+            timeInterval: 30s
+            queryTimeout: 300s
+            httpMethod: POST
+
+        - name: Loki
+          type: loki
+          uid: Loki
+          access: proxy
+          url: http://loki:3100
+          editable: false
+          jsonData:
+            maxLines: 1000
+            lokiVolumeEnabled: true
+            timeout: 300
+
+        - name: Tempo
+          type: tempo
+          access: proxy
+          url: http://tempo-query-frontend:3200
+          editable: false
+          jsonData:
+            tracesToLogs:
+              datasourceUid: "Loki"
+              filterByTraceID: true
+              filterBySpanID: false
+              tags: ["job", "instance", "pod", "namespace"]
+            tracesToMetrics:
+              datasourceUid: "Prometheus"
+              tags: [{ key: "service.name", value: "service" }, { key: "job" }]
+              queries:
+                - name: "Request rate"
+                  query: "sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))"
+            serviceMap:
+              datasourceUid: "Prometheus"
+            search:
+              hide: false
+            nodeGraph:
+              enabled: true
+            lokiSearch:
+              datasourceUid: "Loki"
+
+  dashboards:
+    loki:
+      loki-operational:
+        gnetId: 13639
+        revision: 2
+        datasource: Loki
+      loki-reads:
+        gnetId: 15141
+        revision: 1
+        datasource: Loki
+      loki-writes:
+        gnetId: 15142
+        revision: 1
+        datasource: Loki
+      loki-mixin:
+        gnetId: 10004
+        revision: 1
+        datasource: Loki
+      loki-promtail:
+        gnetId: 12559
+        revision: 1
+        datasource: Loki
+    prometheus:
+      prometheus-overview:
+        gnetId: 3662
+        revision: 2
+        datasource: Thanos
+      prometheus-stats:
+        gnetId: 19105
+        revision: 3
+        datasource: Thanos
+    tempo:
+      tempo-operational:
+        gnetId: 16428
+        revision: 1
+        datasource: Tempo
+      tempo-red-metrics:
+        gnetId: 17485
+        revision: 1
+        datasource: Thanos
+    kubernetes:
+      k8s-cluster-overview:
+        gnetId: 17900
+        revision: 1
+        datasource: Thanos
+      k8s-views-global:
+        gnetId: 15757
+        revision: 37
+        datasource: Thanos
+      k8s-views-namespaces:
+        gnetId: 15758
+        revision: 34
+        datasource: Thanos
+      k8s-views-nodes:
+        gnetId: 15759
+        revision: 29
+        datasource: Thanos
+      k8s-views-pods:
+        gnetId: 15760
+        revision: 26
+        datasource: Thanos
+    node-exporter:
+      node-exporter-full:
+        gnetId: 1860
+        revision: 37
+        datasource: Thanos
+      node-exporter-detailed:
+        gnetId: 11074
+        revision: 9
+        datasource: Thanos
+    thanos:
+      thanos-overview:
+        gnetId: 12937
+        revision: 1
+        datasource: Thanos
+      thanos-compactor:
+        gnetId: 12963
+        revision: 1
+        datasource: Thanos
+      thanos-store:
+        gnetId: 12964
+        revision: 1
+        datasource: Thanos
+      thanos-query:
+        gnetId: 12962
+        revision: 1
+        datasource: Thanos
+
+# --- Thanos + Dual Prometheus ---
+thanos-stack:
+  enabled: true
+  replicas: 2
+
+  objstore:
+    type: s3
+    config:
+      bucket: "thanos-metrics"
+      insecure: true
+      signature_version2: false
+      http_config:
+        idle_conn_timeout: 90s
+        response_header_timeout: 2m
+        insecure_skip_verify: true
+
+  prometheus:
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: ""
+    retention: "4h"
+    instances:
+      - name: prometheus-0
+        replica: 0
+        replicas: 1
+        external_labels:
+          cluster: monitoring-cluster
+          replica: prometheus-0
+      - name: prometheus-1
+        replica: 1
+        replicas: 1
+        external_labels:
+          cluster: monitoring-cluster
+          replica: prometheus-1
+
+  query:
+    enabled: true
+    replicas: 2
+    port: 9090
+
+  store:
+    enabled: true
+    replicas: 2
+    persistence:
+      enabled: false
+
+  compactor:
+    enabled: true
+    replicas: 1 # never >1
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClass: ""
+
+# --- Loki Microservices ---
+logging-stack:
+  loki:
+    enabled: true
+    replicas: 3
+    image:
+      repository: grafana/loki
+      tag: "3.0.0"
+
+    distributor:
+      enabled: true
+      replicas: 3
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1
+          memory: 2Gi
+
+    ingester:
+      enabled: true
+      replicas: 3
+      persistence:
+        enabled: true
+        size: 10Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 2
+          memory: 8Gi
+        limits:
+          cpu: 4
+          memory: 14Gi
+      chunk_idle_period: 5m
+      max_chunk_age: 15m
+      chunk_target_size: 1572864
+      chunk_encoding: snappy
+      flush_on_shutdown: true
+      extraEnv:
+        - name: GOGC
+          value: "50"
+
+    limits_config:
+      ingestion_rate_mb: 4
+      ingestion_burst_size_mb: 6
+      per_stream_rate_limit: 2MB
+      per_stream_rate_limit_burst: 4MB
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      retention_period: 168h
+      max_line_size: 256kb
+      max_query_parallelism: 32
+      max_streams_per_user: 10000
+      max_global_streams_per_user: 50000
+      query_timeout: 3m
+
+    querier:
+      enabled: true
+      replicas: 4
+      max_concurrent: 16
+      resources:
+        requests:
+          cpu: 2
+          memory: 8Gi
+        limits:
+          cpu: 4
+          memory: 14Gi
+
+    queryFrontend:
+      enabled: true
+      replicas: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1
+          memory: 2Gi
+
+    query_range:
+      split_queries_by_interval: 15m
+      align_queries_with_step: true
+      cache_results: true
+      max_retries: 5
+      parallelise_shardable_queries: true
+
+    scheduler:
+      enabled: true
+      replicas: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1
+          memory: 2Gi
+
+    compactor:
+      enabled: true
+      replicas: 1
+      persistence:
+        enabled: true
+        size: 10Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 1
+          memory: 2Gi
+        limits:
+          cpu: 2
+          memory: 4Gi
+      compaction_interval: 10m
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+
+    storage:
+      type: s3
+      s3:
+        region: "us-east-1"
+        insecure: true
+        s3ForcePathStyle: true
+      bucketNames:
+        chunks: "loki-chunks"
+        ruler: "loki-ruler"
+
+# --- Tempo + OTel Collector ---
+tracing-stack:
+  enabled: true
+
+  tempo:
+    enabled: true
+    replicaCount:
+      distributor: 2
+      ingester: 3
+      querier: 2
+      queryFrontend: 2
+      compactor: 1 # never >1
+
+    storage:
+      type: s3
+      retention: 168h
+      s3:
+        bucket: "tempo-traces"
+        insecure: true
+
+    persistence:
+      enabled: false
+
+    metrics_generator:
+      enabled: true
+      remote_write:
+        prometheus_endpoints:
+          - prometheus-0
+          - prometheus-1
+
+  otelCollector:
+    enabled: true
+    replicas: 2
+    service:
+      type: NodePort
+      otlpGrpc:
+        port: 4317
+        nodePort: 30317
+      otlpHttp:
+        port: 4318
+        nodePort: 30318
+      jaegerGrpc:
+        port: 14250
+        nodePort: 31250
+      jaegerThrift:
+        port: 14268
+        nodePort: 31268
+      zipkin:
+        port: 9411
+        nodePort: 30411
+      metrics:
+        port: 8889
+        nodePort: 30889
+
+# --- Cluster Observability ---
+
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: http://loki.observability.svc.cluster.local:3100/loki/api/v1/push
+        batchwait: 5s
+        batchsize: 5242880
+        backoff_config:
+          min_period: 500ms
+          max_period: 5m
+          max_retries: 10
+    snippets:
+      pipelineStages:
+        - docker: {}
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - drop:
+                  expression: ".*(kube-probe|ELB-HealthChecker).*"
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - drop:
+                  expression: '.*GET .*\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot).*'
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - drop:
+                  expression: ".*OPTIONS /.* 200 .*"
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - regex:
+                  expression: ".*level=(?P<level>[a-zA-Z]+).*"
+              - drop:
+                  source: "level"
+                  expression: "(?i)(debug|trace)"
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+
+prometheus-node-exporter:
+  enabled: false
+  hostNetwork: true
+  hostPID: true
+  extraArgs:
+    - --web.listen-address=:9103
+  service:
+    port: 9103
+    targetPort: 9103
+  serviceAccount:
+    create: true
+    name: node-exporter
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+
+prometheus-blackbox-exporter:
+  enabled: true
+  replicas: 2
+  serviceAccount:
+    create: true
+    name: blackbox-exporter
+
+kube-state-metrics:
+  enabled: true
+  replicas: 2
+  serviceAccount:
+    create: true
+    name: kube-state-metrics
+  rbac:
+    create: true
+
+alertmanager:
+  enabled: true
+  replicas: 2
+  cluster:
+    enabled: true
+  persistence:
+    enabled: true
+    size: 2Gi
+  service:
+    type: ClusterIP
+    port: 9093
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "teams-default"
+      group_by: [alertname, namespace, service]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: "teams-critical"
+          match:
+            severity: critical
+          repeat_interval: 1h
+        - receiver: "teams-default"
+          match:
+            severity: warning
+          repeat_interval: 4h
+    receivers:
+      - name: "teams-default"
+        webhook_configs:
+          - url: "<TEAMS_WEBHOOK_URL>"
+            send_resolved: true
+      - name: "teams-critical"
+        webhook_configs:
+          - url: "<TEAMS_CRITICAL_WEBHOOK_URL>"
+            send_resolved: true
+    inhibit_rules:
+      - source_match:
+          severity: critical
+        target_match:
+          severity: warning
+        equal: [alertname, namespace]
+
+# --- Loki External Access (for remote clusters) ---
+loki-external:
+  ingress:
+    enabled: false
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    tls:
+      - secretName: ingress-internal-tls
+        hosts:
+          - loki.observability.example.com
+    hosts:
+      - loki.observability.example.com
+    paths:
+      - path: /loki/api/v1/push
+        pathType: Prefix
+  service:
+    type: ClusterIP
+    port: 3100
+    targetService: loki

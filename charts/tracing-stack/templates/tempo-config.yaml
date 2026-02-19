@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: {{ .Values.global.namespace | default "default" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+      log_level: info
+      log_format: logfmt
+
+    memberlist:
+      bind_port: 7946
+      join_members:
+        - tempo-distributor-headless.{{ .Release.Namespace }}.svc.cluster.local:7946
+        - tempo-ingester-headless.{{ .Release.Namespace }}.svc.cluster.local:7946
+        - tempo-querier-headless.{{ .Release.Namespace }}.svc.cluster.local:7946
+        - tempo-compactor-headless.{{ .Release.Namespace }}.svc.cluster.local:7946
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        jaeger:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:14250
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+            thrift_compact:
+              endpoint: 0.0.0.0:6831
+            thrift_binary:
+              endpoint: 0.0.0.0:6832
+        zipkin:
+          endpoint: 0.0.0.0:9411
+      ring:
+        kvstore:
+          store: memberlist
+
+    ingester:
+      max_block_duration: 5m
+      max_block_bytes: 1073741824  # 1GB
+      complete_block_timeout: 10m
+      lifecycler:
+        ring:
+          kvstore:
+            store: memberlist
+          replication_factor: {{ .Values.tempo.replicaCount.ingester | default 3 }}
+        tokens_file_path: /tmp/tempo/tokens
+        final_sleep: 0s
+
+    compactor:
+      compaction:
+        block_retention: {{ .Values.tempo.storage.retention | default "12h" }}
+      ring:
+        kvstore:
+          store: memberlist
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: {{ .Values.global.cluster | default "local" }}
+      storage:
+        path: /tmp/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus-0.{{ .Release.Namespace }}.svc.cluster.local:9090/api/v1/write
+            send_exemplars: true
+          - url: http://prometheus-1.{{ .Release.Namespace }}.svc.cluster.local:9090/api/v1/write
+            send_exemplars: true
+      ring:
+        kvstore:
+          store: memberlist
+
+    storage:
+      trace:
+        backend: s3
+        # block:
+        #   version: vParquet
+        wal:
+          path: /tmp/tempo/wal
+        s3:
+          bucket: "{{ .Values.tempo.storage.s3.bucket }}"
+          endpoint: "{{ .Values.global.objectStorage.endpoint }}"
+          access_key: {{ .Values.global.objectStorage.accessKey }}
+          secret_key: {{ .Values.global.objectStorage.secretKey }}
+          region: "{{ .Values.tempo.storage.s3.region }}"
+          insecure: {{ .Values.tempo.storage.s3.insecure }}
+          forcepathstyle: true
+        pool:
+          max_workers: 100
+          queue_depth: 10000
+
+    query_frontend:
+      search:
+        duration_slo: 5s
+        throughput_bytes_slo: 1.073741824e+09
+        max_duration: 0s
+        default_result_limit: 20
+        max_result_limit: 1000
+      trace_by_id:
+        duration_slo: 5s
+      max_retries: 5
+
+    querier:
+      max_concurrent_queries: 20
+      frontend_worker:
+        frontend_address: tempo-query-frontend:9095
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors: [service-graphs, span-metrics]
+          max_active_series: 0
+          collection_interval: 15s
+          disable_collection: false
+        ingestion:
+          rate_strategy: local
+          rate_limit_bytes: 15000000
+          burst_size_bytes: 20000000

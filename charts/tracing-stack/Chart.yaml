@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tracing-stack
+description: Tempo distributed + OpenTelemetry Collector for HA tracing
+version: 0.1.0
+type: application

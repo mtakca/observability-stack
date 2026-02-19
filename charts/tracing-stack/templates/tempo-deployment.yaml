@@ -1,0 +1,518 @@
+{{- if .Values.tempo.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo-distributor
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: distributor
+spec:
+  replicas: {{ .Values.tempo.replicaCount.distributor | default 2 }}
+  selector:
+    matchLabels:
+      app: tempo
+      component: distributor
+  template:
+    metadata:
+      labels:
+        app: tempo
+        component: distributor
+        {{- include "common.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3200"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ .Values.global.serviceAccount | default "default" }}
+      containers:
+      - name: tempo-distributor
+        image: grafana/tempo:2.6.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - -target=distributor
+          - -config.file=/etc/tempo/tempo.yaml
+        ports:
+        - name: http
+          containerPort: 3200
+          protocol: TCP
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: jaeger-grpc
+          containerPort: 14250
+          protocol: TCP
+        - name: jaeger-http
+          containerPort: 14268
+          protocol: TCP
+        - name: jaeger-compact
+          containerPort: 6831
+          protocol: UDP
+        - name: jaeger-binary
+          containerPort: 6832
+          protocol: UDP
+        - name: zipkin
+          containerPort: 9411
+          protocol: TCP
+        - name: memberlist-tcp
+          containerPort: 7946
+          protocol: TCP
+        - name: memberlist-udp
+          containerPort: 7946
+          protocol: UDP
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo-ingester
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: ingester
+spec:
+  replicas: {{ .Values.tempo.replicaCount.ingester | default 3 }}
+  selector:
+    matchLabels:
+      app: tempo
+      component: ingester
+  template:
+    metadata:
+      labels:
+        app: tempo
+        component: ingester
+        {{- include "common.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.global.serviceAccount | default "default" }}
+      containers:
+      - name: tempo-ingester
+        image: grafana/tempo:2.6.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - -target=ingester
+          - -config.file=/etc/tempo/tempo.yaml
+        ports:
+        - name: http
+          containerPort: 3200
+          protocol: TCP
+        - name: memberlist-tcp
+          containerPort: 7946
+          protocol: TCP
+        - name: memberlist-udp
+          containerPort: 7946
+          protocol: UDP
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+          readOnly: true
+        - name: tempo-storage
+          mountPath: /tmp/tempo
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: tempo-storage
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo-querier
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: querier
+spec:
+  replicas: {{ .Values.tempo.replicaCount.querier | default 2 }}
+  selector:
+    matchLabels:
+      app: tempo
+      component: querier
+  template:
+    metadata:
+      labels:
+        app: tempo
+        component: querier
+        {{- include "common.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.global.serviceAccount | default "default" }}
+      containers:
+      - name: tempo-querier
+        image: grafana/tempo:2.6.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - -target=querier
+          - -config.file=/etc/tempo/tempo.yaml
+        ports:
+        - name: http
+          containerPort: 3200
+          protocol: TCP
+        - name: memberlist-tcp
+          containerPort: 7946
+          protocol: TCP
+        - name: memberlist-udp
+          containerPort: 7946
+          protocol: UDP
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+          readOnly: true
+        - name: tempo-storage
+          mountPath: /tmp/tempo
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+      - name: tempo-storage
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo-compactor
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: compactor
+spec:
+  replicas: {{ .Values.tempo.replicaCount.compactor | default 1 }}
+  selector:
+    matchLabels:
+      app: tempo
+      component: compactor
+  template:
+    metadata:
+      labels:
+        app: tempo
+        component: compactor
+        {{- include "common.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.global.serviceAccount | default "default" }}
+      containers:
+      - name: tempo-compactor
+        image: grafana/tempo:2.6.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - -target=compactor
+          - -config.file=/etc/tempo/tempo.yaml
+        ports:
+        - name: http
+          containerPort: 3200
+          protocol: TCP
+        - name: memberlist-tcp
+          containerPort: 7946
+          protocol: TCP
+        - name: memberlist-udp
+          containerPort: 7946
+          protocol: UDP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo-query-frontend
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: query-frontend
+spec:
+  replicas: {{ .Values.tempo.replicaCount.queryFrontend | default 2 }}
+  selector:
+    matchLabels:
+      app: tempo
+      component: query-frontend
+  template:
+    metadata:
+      labels:
+        app: tempo
+        component: query-frontend
+        {{- include "common.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.global.serviceAccount | default "default" }}
+      containers:
+      - name: tempo-query-frontend
+        image: grafana/tempo:2.6.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - -target=query-frontend
+          - -config.file=/etc/tempo/tempo.yaml
+        ports:
+        - name: http
+          containerPort: 3200
+          protocol: TCP
+        - name: grpc
+          containerPort: 9095
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-config
+---
+# Service for tempo-distributor (for ingesting traces)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-distributor
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: distributor
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3200
+    targetPort: http
+    protocol: TCP
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+    protocol: TCP
+  - name: jaeger-grpc
+    port: 14250
+    targetPort: 14250
+    protocol: TCP
+  - name: jaeger-http
+    port: 14268
+    targetPort: 14268
+    protocol: TCP
+  - name: jaeger-compact
+    port: 6831
+    targetPort: 6831
+    protocol: UDP
+  - name: jaeger-binary
+    port: 6832
+    targetPort: 6832
+    protocol: UDP
+  - name: zipkin
+    port: 9411
+    targetPort: 9411
+    protocol: TCP
+  selector:
+    app: tempo
+    component: distributor
+---
+# Headless service for tempo-distributor memberlist clustering
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-distributor-headless
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: distributor
+spec:
+  clusterIP: None
+  ports:
+  - name: memberlist-tcp
+    port: 7946
+    targetPort: 7946
+    protocol: TCP
+  - name: memberlist-udp
+    port: 7946
+    targetPort: 7946
+    protocol: UDP
+  selector:
+    app: tempo
+    component: distributor
+---
+# Service for tempo-query-frontend (for query routing)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-query-frontend
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: query-frontend
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3200
+    targetPort: http
+    protocol: TCP
+  - name: grpc
+    port: 9095
+    targetPort: grpc
+    protocol: TCP
+  selector:
+    app: tempo
+    component: query-frontend
+---
+# General tempo service (points to query-frontend for queries)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 3200
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: tempo
+    component: query-frontend
+---
+# Headless service for tempo-ingester memberlist clustering
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-ingester-headless
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: ingester
+spec:
+  clusterIP: None
+  ports:
+  - name: memberlist-tcp
+    port: 7946
+    targetPort: 7946
+    protocol: TCP
+  - name: memberlist-udp
+    port: 7946
+    targetPort: 7946
+    protocol: UDP
+  selector:
+    app: tempo
+    component: ingester
+---
+# Headless service for tempo-querier memberlist clustering
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-querier-headless
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: querier
+spec:
+  clusterIP: None
+  ports:
+  - name: memberlist-tcp
+    port: 7946
+    targetPort: 7946
+    protocol: TCP
+  - name: memberlist-udp
+    port: 7946
+    targetPort: 7946
+    protocol: UDP
+  selector:
+    app: tempo
+    component: querier
+---
+# Headless service for tempo-compactor memberlist clustering
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-compactor-headless
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: compactor
+spec:
+  clusterIP: None
+  ports:
+  - name: memberlist-tcp
+    port: 7946
+    targetPort: 7946
+    protocol: TCP
+  - name: memberlist-udp
+    port: 7946
+    targetPort: 7946
+    protocol: UDP
+  selector:
+    app: tempo
+    component: compactor
+{{- end }}

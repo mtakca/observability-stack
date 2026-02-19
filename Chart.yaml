@@ -1,0 +1,66 @@
+apiVersion: v2
+name: observability-stack
+description: Observability Stack — Grafana, Thanos, Loki, Tempo, OTel, Promtail
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+dependencies:
+  # Shared resources (secrets, postgres, TLS)
+  - name: common
+    version: 0.1.0
+    repository: "file://charts/common"
+
+  # Grafana HA with PostgreSQL backend
+  - name: grafana
+    version: 9.3.1
+    repository: "https://grafana.github.io/helm-charts"
+    condition: grafana.enabled
+
+  # Thanos + dual-Prometheus for HA metrics
+  - name: thanos-stack
+    version: 0.1.0
+    repository: "file://charts/thanos-stack"
+    condition: thanos-stack.enabled
+
+  # Loki microservices for HA log aggregation
+  - name: logging-stack
+    version: 0.1.0
+    repository: "file://charts/logging-stack"
+    condition: logging-stack.enabled
+
+  # Tempo distributed + OpenTelemetry Collector
+  - name: tracing-stack
+    version: 0.1.0
+    repository: "file://charts/tracing-stack"
+    condition: tracing-stack.enabled
+
+  # Promtail — DaemonSet log shipper
+  - name: promtail
+    version: 6.16.6
+    repository: "https://grafana.github.io/helm-charts"
+    condition: promtail.enabled
+
+  # Node Exporter — host-level metrics
+  - name: prometheus-node-exporter
+    version: 4.46.1
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus-node-exporter.enabled
+
+  # Blackbox Exporter — synthetic probes
+  - name: prometheus-blackbox-exporter
+    version: 9.2.0
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: prometheus-blackbox-exporter.enabled
+
+  # Kube State Metrics — K8s object metrics
+  - name: kube-state-metrics
+    version: 5.27.0
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: kube-state-metrics.enabled
+
+  # Alertmanager for HA alert routing
+  - name: alertmanager
+    version: 1.14.0
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: alertmanager.enabled

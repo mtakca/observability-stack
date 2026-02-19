@@ -1,0 +1,20 @@
+{{- if .Values.tempo.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-storage
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: tempo
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.tempo.persistence.size | default "10Gi" }}
+  {{- if .Values.tempo.persistence.storageClass }}
+  storageClassName: {{ .Values.tempo.persistence.storageClass }}
+  {{- end }}
+{{- end }}

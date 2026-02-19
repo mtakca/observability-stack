@@ -1,0 +1,112 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: otel-collector
+spec:
+  replicas: {{ .Values.otelCollector.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app: otel-collector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/otel-collector-config.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8889"
+    spec:
+      serviceAccountName: otel-collector
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.70.0
+          command:
+            - "/otelcol-contrib"
+            - "--config=/conf/collector.yaml"
+          ports:
+            # OTLP gRPC and HTTP
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            # Jaeger protocols
+            - name: jaeger-grpc
+              containerPort: 14250
+            - name: jaeger-thrift
+              containerPort: 14268
+            - name: jaeger-comp
+              containerPort: 6831
+              protocol: UDP
+            - name: jaeger-bin
+              containerPort: 6832
+              protocol: UDP
+            # Zipkin
+            - name: zipkin
+              containerPort: 9411
+            # Prometheus metrics
+            - name: metrics
+              containerPort: 8889
+            # Health check
+            - name: healthcheck
+              containerPort: 13133
+            # Debug endpoints
+            - name: pprof
+              containerPort: 1777
+            - name: zpages
+              containerPort: 55679
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+          livenessProbe:
+            httpGet:
+              path: /
+              port: healthcheck
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: healthcheck
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- if and .Values.otelCollector.resources .Values.otelCollector.resources.limits }}
+            limits:
+              cpu: {{ .Values.otelCollector.resources.limits.cpu | default "200m" }}
+              memory: {{ .Values.otelCollector.resources.limits.memory | default "512Mi" }}
+            {{- end }}
+            {{- if and .Values.otelCollector.resources .Values.otelCollector.resources.requests }}
+            requests:
+              cpu: {{ .Values.otelCollector.resources.requests.cpu | default "50m" }}
+              memory: {{ .Values.otelCollector.resources.requests.memory | default "128Mi" }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+            items:
+              - key: collector.yaml
+                path: collector.yaml
+{{- end }}
+

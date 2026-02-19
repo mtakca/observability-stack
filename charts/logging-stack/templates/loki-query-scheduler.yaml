@@ -1,0 +1,75 @@
+{{- if .Values.loki.scheduler.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-query-scheduler
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: query-scheduler
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: 9096
+      protocol: TCP
+  selector:
+    app: loki
+    component: query-scheduler
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki-query-scheduler
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: query-scheduler
+spec:
+  replicas: {{ .Values.loki.scheduler.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: loki
+      component: query-scheduler
+  template:
+    metadata:
+      labels:
+        app: loki
+        component: query-scheduler
+    spec:
+      serviceAccountName: loki
+      containers:
+        - name: query-scheduler
+          image: {{ .Values.loki.image.repository }}:{{ .Values.loki.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=query-scheduler
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: grpc
+              containerPort: 9096
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: storage
+              mountPath: /loki
+          resources:
+            {{- toYaml .Values.loki.scheduler.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: storage
+          emptyDir: {}
+{{- end }}

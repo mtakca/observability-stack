@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki-distributor
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: distributor
+spec:
+  replicas: {{ (.Values.loki.distributor | default dict).replicas | default 3 }}
+  selector:
+    matchLabels:
+      app: loki
+      component: distributor
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app: loki
+        component: distributor
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/loki-config.yaml") . | sha256sum }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: component
+                      operator: In
+                      values:
+                        - distributor
+                topologyKey: kubernetes.io/hostname
+      serviceAccountName: loki
+      containers:
+        - name: distributor
+          image: {{ .Values.loki.image.repository }}:{{ .Values.loki.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=distributor
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+            - name: memberlist
+              containerPort: 7946
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+          resources:
+            {{- toYaml (.Values.loki.distributor | default dict).resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config

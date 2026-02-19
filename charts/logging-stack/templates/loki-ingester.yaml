@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki-ingester
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: ingester
+spec:
+  replicas: {{ (.Values.loki.ingester | default dict).replicas | default 3 }}
+  serviceName: loki-ingester-headless
+  selector:
+    matchLabels:
+      app: loki
+      component: ingester
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app: loki
+        component: ingester
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/loki-config.yaml") . | sha256sum }}
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: component
+                      operator: In
+                      values:
+                        - ingester
+                topologyKey: kubernetes.io/hostname
+      serviceAccountName: loki
+      containers:
+        - name: loki-ingester
+          image: {{ .Values.loki.image.repository }}:{{ .Values.loki.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=ingester
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: grpc
+              containerPort: 9096
+              protocol: TCP
+            - name: memberlist
+              containerPort: 7946
+              protocol: TCP
+            - name: memberlist-udp
+              containerPort: 7946
+              protocol: UDP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: data
+              mountPath: /tmp/loki
+          {{- if (.Values.loki.ingester | default dict).resources }}
+          resources:
+            {{- toYaml (.Values.loki.ingester | default dict).resources | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+  {{- if (.Values.loki.ingester | default dict).persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ (.Values.loki.ingester | default dict).persistence.storageClass | default "longhorn" }}
+        resources:
+          requests:
+            storage: {{ (.Values.loki.ingester | default dict).persistence.size | default "10Gi" }}
+  {{- else }}
+        - name: data
+          emptyDir: {}
+  {{- end }}

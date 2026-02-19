@@ -1,0 +1,108 @@
+global:
+  namespace: observability
+  objectStorage:
+    endpoint: ""
+    accessKey: ""
+    secretKey: ""
+
+loki:
+  image:
+    repository: grafana/loki
+    tag: 3.0.0
+
+  distributor:
+    enabled: true
+    replicas: 3
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1
+        memory: 2Gi
+
+  ingester:
+    enabled: true
+    replicas: 3
+    persistence:
+      size: 10Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 2
+        memory: 4Gi
+      limits:
+        cpu: 4
+        memory: 8Gi
+    chunk_encoding: snappy
+    chunk_target_size: 1572864
+    chunk_block_size: 262144
+    chunk_idle_period: "30m"
+    max_chunk_age: "1h"
+
+  querier:
+    enabled: true
+    replicas: 4
+    resources:
+      requests:
+        cpu: 2
+        memory: 4Gi
+      limits:
+        cpu: 3
+        memory: 8Gi
+
+  queryFrontend:
+    enabled: true
+    replicas: 2
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1
+        memory: 2Gi
+
+  compactor:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 1
+        memory: 2Gi
+      limits:
+        cpu: 2
+        memory: 4Gi
+
+  scheduler:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+
+  storage:
+    type: s3
+    s3:
+      endpoint: ""
+      region: "us-east-1"
+      insecure: true
+      s3ForcePathStyle: true
+    bucketNames:
+      chunks: "loki-chunks"
+      ruler: "loki-ruler"
+
+  service:
+    type: NodePort
+    http:
+      port: 3100
+      nodePort: 30100
+    grpc:
+      port: 9096
+      nodePort: 30096

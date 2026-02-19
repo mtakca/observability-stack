@@ -1,0 +1,21 @@
+Remote agent deployed to {{ .Release.Namespace }}.
+
+Components:
+  Prometheus:      prometheus.{{ .Release.Namespace }}.svc:9090
+  Thanos Sidecar:  prometheus.{{ .Release.Namespace }}.svc:10901
+{{- if .Values.otelCollector.enabled }}
+  OTel Collector:  otel-collector.{{ .Release.Namespace }}.svc:4317
+{{- end }}
+
+Cluster: {{ .Values.cluster.name }}
+Environment: {{ .Values.cluster.environment }}
+
+Metrics ship to: {{ .Values.centralStack.minioEndpoint }} (bucket: {{ .Values.centralStack.minioBucket }})
+Logs ship to:    {{ .Values.centralStack.lokiEndpoint }}
+{{- if .Values.otelCollector.enabled }}
+Traces ship to:  {{ .Values.centralStack.otelEndpoint }}
+{{- end }}
+
+Verify sidecar is shipping blocks:
+  kubectl logs -n {{ .Release.Namespace }} sts/prometheus -c thanos-sidecar --tail=20
+

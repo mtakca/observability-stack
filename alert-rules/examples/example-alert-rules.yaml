@@ -1,0 +1,136 @@
+# Example: HTTP Error Rate Alert
+# Place your custom alert rule files in this directory.
+# Supported formats: Full Grafana structure, groups list, or single group.
+# Run: make alerts-generate DOMAIN=examples
+
+groups:
+  - name: "HTTP Error Rate"
+    folder: "SRE Alerts"
+    interval: 1m
+    rules:
+      - uid: http_5xx_spike
+        title: "HTTP 5xx Error Rate Spike"
+        condition: C
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "HTTP 5xx error rate exceeded threshold"
+          description: |
+            The 5xx error rate has exceeded 5% in the last 5 minutes.
+            Investigate the affected service immediately.
+          runbook_url: "https://runbooks.example.com/http-5xx"
+        data:
+          - refId: A
+            queryType: range
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: |
+                sum(rate(http_requests_total{status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total[5m]))
+                * 100
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+
+  - name: "Pod Health"
+    folder: "Kubernetes Alerts"
+    interval: 1m
+    rules:
+      - uid: pod_restart_loop
+        title: "Pod Restart Loop Detected"
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} is in CrashLoopBackOff"
+          description: |
+            Pod {{ $labels.pod }} in namespace {{ $labels.namespace }}
+            has restarted more than 5 times in the last 10 minutes.
+          runbook_url: "https://runbooks.example.com/crashloop"
+        data:
+          - refId: A
+            queryType: range
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: |
+                increase(kube_pod_container_status_restarts_total[10m]) > 5
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+      - uid: high_memory_usage
+        title: "Container Memory Usage Critical"
+        condition: C
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Container {{ $labels.container }} memory usage > 90%"
+          description: |
+            Container {{ $labels.container }} in pod {{ $labels.pod }}
+            is using more than 90% of its memory limit.
+          runbook_url: "https://runbooks.example.com/oom-risk"
+        data:
+          - refId: A
+            queryType: range
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: |
+                container_memory_working_set_bytes
+                /
+                container_spec_memory_limit_bytes
+                * 100 > 90
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]

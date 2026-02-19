@@ -1,0 +1,93 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: otel-collector
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8889"
+spec:
+  type: {{ .Values.otelCollector.service.type | default "ClusterIP" }}
+  ports:
+    # OTLP receivers
+    - name: otlp-grpc
+      port: {{ .Values.otelCollector.service.otlpGrpc.port | default 4317 }}
+      targetPort: otlp-grpc
+      protocol: TCP
+      {{- if and (eq (.Values.otelCollector.service.type | default "ClusterIP") "NodePort") .Values.otelCollector.service.otlpGrpc.nodePort }}
+      nodePort: {{ .Values.otelCollector.service.otlpGrpc.nodePort }}
+      {{- end }}
+    - name: otlp-http
+      port: {{ .Values.otelCollector.service.otlpHttp.port | default 4318 }}
+      targetPort: otlp-http
+      protocol: TCP
+      {{- if and (eq (.Values.otelCollector.service.type | default "ClusterIP") "NodePort") .Values.otelCollector.service.otlpHttp.nodePort }}
+      nodePort: {{ .Values.otelCollector.service.otlpHttp.nodePort }}
+      {{- end }}
+    
+    # Jaeger receivers
+    - name: jaeger-grpc
+      port: {{ .Values.otelCollector.service.jaegerGrpc.port | default 14250 }}
+      targetPort: jaeger-grpc
+      protocol: TCP
+      {{- if and (eq (.Values.otelCollector.service.type | default "ClusterIP") "NodePort") .Values.otelCollector.service.jaegerGrpc.nodePort }}
+      nodePort: {{ .Values.otelCollector.service.jaegerGrpc.nodePort }}
+      {{- end }}
+    - name: jaeger-thrift
+      port: {{ .Values.otelCollector.service.jaegerThrift.port | default 14268 }}
+      targetPort: jaeger-thrift
+      protocol: TCP
+      {{- if and (eq (.Values.otelCollector.service.type | default "ClusterIP") "NodePort") .Values.otelCollector.service.jaegerThrift.nodePort }}
+      nodePort: {{ .Values.otelCollector.service.jaegerThrift.nodePort }}
+      {{- end }}
+    - name: jaeger-comp
+      port: 6831
+      targetPort: jaeger-comp
+      protocol: UDP
+    - name: jaeger-bin
+      port: 6832
+      targetPort: jaeger-bin
+      protocol: UDP
+    
+    # Zipkin receiver
+    - name: zipkin
+      port: {{ .Values.otelCollector.service.zipkin.port | default 9411 }}
+      targetPort: zipkin
+      protocol: TCP
+      {{- if and (eq (.Values.otelCollector.service.type | default "ClusterIP") "NodePort") .Values.otelCollector.service.zipkin.nodePort }}
+      nodePort: {{ .Values.otelCollector.service.zipkin.nodePort }}
+      {{- end }}
+    
+    # Prometheus metrics endpoint
+    - name: metrics
+      port: {{ .Values.otelCollector.service.metrics.port | default 8889 }}
+      targetPort: metrics
+      protocol: TCP
+      {{- if and (eq (.Values.otelCollector.service.type | default "ClusterIP") "NodePort") .Values.otelCollector.service.metrics.nodePort }}
+      nodePort: {{ .Values.otelCollector.service.metrics.nodePort }}
+      {{- end }}
+    
+    # Health check endpoint
+    - name: healthcheck
+      port: 13133
+      targetPort: healthcheck
+      protocol: TCP
+    
+    # Debug endpoints
+    - name: pprof
+      port: 1777
+      targetPort: pprof
+      protocol: TCP
+    - name: zpages
+      port: 55679
+      targetPort: zpages
+      protocol: TCP
+  
+  selector:
+    app: otel-collector
+{{- end }}
+

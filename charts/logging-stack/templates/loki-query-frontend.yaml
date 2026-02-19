@@ -1,0 +1,71 @@
+{{- if .Values.loki.queryFrontend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-query-frontend
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: query-frontend
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: 9095
+      protocol: TCP
+  selector:
+    app: loki
+    component: query-frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki-query-frontend
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: query-frontend
+spec:
+  replicas: {{ .Values.loki.queryFrontend.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: loki
+      component: query-frontend
+  template:
+    metadata:
+      labels:
+        app: loki
+        component: query-frontend
+    spec:
+      serviceAccountName: loki
+      containers:
+        - name: query-frontend
+          image: {{ .Values.loki.image.repository }}:{{ .Values.loki.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=query-frontend
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+          resources:
+            {{- toYaml .Values.loki.queryFrontend.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+{{- end }}

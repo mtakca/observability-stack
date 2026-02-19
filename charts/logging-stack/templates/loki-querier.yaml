@@ -1,0 +1,76 @@
+{{- if .Values.loki.querier.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-querier
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: querier
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: 9095
+      protocol: TCP
+  selector:
+    app: loki
+    component: querier
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki-querier
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: querier
+spec:
+  replicas: {{ .Values.loki.querier.replicas | default 2 }}
+  selector:
+    matchLabels:
+      app: loki
+      component: querier
+  template:
+    metadata:
+      labels:
+        app: loki
+        component: querier
+    spec:
+      serviceAccountName: loki
+      containers:
+        - name: querier
+          image: {{ .Values.loki.image.repository }}:{{ .Values.loki.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=querier
+            - -querier.scheduler-address=loki-query-scheduler.{{ .Values.global.namespace | default "observability" }}.svc:9095
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: storage
+              mountPath: /loki
+          resources:
+            {{- toYaml .Values.loki.querier.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: storage
+          emptyDir: {}
+{{- end }}

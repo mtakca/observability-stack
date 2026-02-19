@@ -1,0 +1,113 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grafana-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: prometheus-0-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: prometheus-0
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: prometheus-1-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: prometheus-1
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: thanos-query-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: thanos-query
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: thanos-store-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: thanos-store
+---
+# maxUnavailable for stateful ingesters — ring needs quorum
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: loki-ingester-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: loki-ingester
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: loki-distributor-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: loki-distributor
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: loki-querier-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: loki-querier
+---
+# maxUnavailable for stateful ingesters — ring needs quorum
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tempo-ingester-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: tempo
+      component: ingester
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alertmanager-pdb
+  namespace: {{ .Values.global.namespace | default "observability"}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager

@@ -1,0 +1,41 @@
+{{- if index .Values "loki-external" }}
+{{- if (index .Values "loki-external").ingress }}
+{{- if (index .Values "loki-external").ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: loki-external
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+  annotations:
+    {{- with (index .Values "loki-external").ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if (index .Values "loki-external").ingress.ingressClassName }}
+  ingressClassName: {{ (index .Values "loki-external").ingress.ingressClassName }}
+  {{- end }}
+  {{- if (index .Values "loki-external").ingress.tls }}
+  tls:
+    {{- toYaml (index .Values "loki-external").ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range (index .Values "loki-external").ingress.hosts }}
+    - host: {{ . }}
+      http:
+        paths:
+          {{- range (index $.Values "loki-external").ingress.paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: loki
+                port:
+                  number: {{ (index $.Values "loki-external").service.port | default 3100 }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

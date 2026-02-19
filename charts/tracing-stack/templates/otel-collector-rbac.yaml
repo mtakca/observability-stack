@@ -1,0 +1,77 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: otel-collector
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: otel-collector
+rules:
+  # Access to pods for metadata collection
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs: ["get", "list", "watch"]
+  
+  # Access to nodes for infrastructure metadata
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+    verbs: ["get", "list", "watch"]
+  
+  # Access to services and endpoints for service discovery
+  - apiGroups: [""]
+    resources:
+      - services
+      - endpoints
+    verbs: ["get", "list", "watch"]
+  
+  # Access to namespaces
+  - apiGroups: [""]
+    resources:
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  
+  # Access to deployments, replicasets, etc. for workload metadata
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - daemonsets
+      - statefulsets
+    verbs: ["get", "list", "watch"]
+  
+  # Access to jobs and cronjobs for batch workload metadata
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: otel-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: {{ .Values.global.namespace | default "observability" }}
+{{- end }}
+

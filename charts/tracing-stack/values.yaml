@@ -1,0 +1,62 @@
+global:
+  namespace: observability
+  cluster: local
+  serviceAccount: default
+
+tempo:
+  enabled: true
+  replicaCount:
+    distributor: 2
+    ingester: 3
+    querier: 2
+    queryFrontend: 2
+    compactor: 1
+  image:
+    repository: grafana/tempo
+    tag: "2.3.1"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  storage:
+    type: s3
+    retention: 24h
+    s3:
+      bucket: tempo-traces
+      insecure: true
+      region: "us-east-1"
+  persistence:
+    enabled: false
+    size: 5Gi
+    storageClass: ""
+  metrics_generator:
+    enabled: true
+    remote_write:
+      prometheus_endpoints:
+        - prometheus-0
+        - prometheus-1
+
+otelCollector:
+  enabled: true
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.89.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "512Mi"
+      cpu: "200m"
+  config:
+    sampling_percentage: 100
+    batch_timeout: 1s
+    batch_size: 1024
+
+networkPolicies:
+  enabled: false

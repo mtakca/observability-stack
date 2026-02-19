@@ -1,0 +1,112 @@
+# remote-agent values — copy to values.<env>.yaml before use
+# Replace all <PLACEHOLDER> values with your environment config.
+
+cluster:
+  name: "<CLUSTER_NAME>"
+  environment: "<ENV>"
+
+centralStack:
+  minioEndpoint: "<MINIO_ENDPOINT>"
+  minioAccessKey: "<MINIO_ACCESS_KEY>"
+  minioSecretKey: "<MINIO_SECRET_KEY>"
+  minioBucket: "thanos-metrics"
+
+  lokiEndpoint: "https://loki.observability.example.com/loki/api/v1/push"
+  otelEndpoint: "otel-collector.observability.example.com:30317"
+
+prometheus:
+  image:
+    repository: prom/prometheus
+    tag: "v2.47.2"
+  retention: "4h"
+  persistence:
+    size: 5Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2
+      memory: 4Gi
+  scrapeInterval: 30s
+
+thanosSidecar:
+  image:
+    repository: thanosio/thanos
+    tag: "v0.32.5"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  objstore:
+    type: s3
+    config:
+      insecure: true
+      signature_version2: false
+      http_config:
+        idle_conn_timeout: 90s
+        response_header_timeout: 2m
+        insecure_skip_verify: true
+
+promtail:
+  enabled: true
+  config:
+    clients:
+      - url: "https://loki.observability.example.com/loki/api/v1/push"
+        batchwait: 5s
+        batchsize: 5242880
+        backoff_config:
+          min_period: 500ms
+          max_period: 5m
+          max_retries: 10
+        external_labels:
+          cluster: "<CLUSTER_NAME>"
+          environment: "<ENV>"
+    snippets:
+      pipelineStages:
+        - docker: {}
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - drop:
+                  expression: ".*(kube-probe|ELB-HealthChecker).*"
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - drop:
+                  expression: '.*GET .*\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot).*'
+        - match:
+            selector: '{app=~".*"}'
+            stages:
+              - regex:
+                  expression: ".*level=(?P<level>[a-zA-Z]+).*"
+              - drop:
+                  source: "level"
+                  expression: "(?i)(debug|trace)"
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+    - operator: Exists
+      effect: NoExecute
+
+otelCollector:
+  enabled: true
+  replicas: 1
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.89.0"
+  service:
+    type: ClusterIP
+  tls:
+    insecure: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus-1
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: prometheus-1
+    prometheus: prometheus-1
+spec:
+  serviceName: prometheus-1
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-1
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/prometheus-1-config.yaml") . | sha256sum }}
+      labels:
+        app: prometheus-1
+        prometheus: prometheus-1
+        thanos-store-api: "true"
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+          - "--config.file=/etc/prometheus/prometheus.yml"
+          - "--storage.tsdb.path=/prometheus"
+          - '--storage.tsdb.retention.time={{ .Values.prometheus.retention | default "12h" }}' # keep blocks 12h in prometheus pod
+          - "--storage.tsdb.min-block-duration=2h" # flush blocks every 2h (thanos sidecar sync blocks to object storage)
+          - "--storage.tsdb.max-block-duration=2h"
+          - "--web.enable-lifecycle"
+          - "--web.enable-admin-api"  # allow /-/flush
+          - "--web.external-url=http://prometheus-1:9090"
+        ports:
+        - containerPort: 9090
+          name: web
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        {{- if .Values.prometheus.persistence.enabled }}
+        - name: data
+          mountPath: /prometheus
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      - name: thanos-sidecar
+        image: {{ .Values.thanosImage }}
+        args:
+          - "sidecar"
+          - "--tsdb.path=/prometheus"
+          - "--prometheus.url=http://localhost:9090"
+          - "--grpc-address=0.0.0.0:10901"
+          - "--http-address=0.0.0.0:10902"
+          - "--objstore.config-file=/etc/thanos/objstore.yml"
+        ports:
+        - containerPort: 10901
+          name: grpc
+        - containerPort: 10902
+          name: http
+        volumeMounts:
+        {{- if .Values.prometheus.persistence.enabled }}
+        - name: data
+          mountPath: /prometheus
+        {{- end }}
+        - name: objstore-config
+          mountPath: /etc/thanos
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 10902
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 10902
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-1-config
+      - name: objstore-config
+        secret:
+          secretName: thanos-objstore-config
+  {{- if .Values.prometheus.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- if .Values.prometheus.persistence.storageClass }}
+      storageClassName: {{ .Values.prometheus.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.prometheus.persistence.size | default "5Gi" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-1
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: prometheus-1
+spec:
+  selector:
+    app: prometheus-1
+  ports:
+  - name: web
+    port: 9090
+    targetPort: 9090
+  - name: grpc
+    port: 10901
+    targetPort: 10901
+  - name: http
+    port: 10902
+    targetPort: 10902

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-memberlist
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: memberlist
+spec:
+  clusterIP: None
+  ports:
+  - name: memberlist
+    port: 7946
+    targetPort: memberlist
+    protocol: TCP
+  selector:
+    app: loki

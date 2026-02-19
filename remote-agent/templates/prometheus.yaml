@@ -1,0 +1,177 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: thanos-objstore-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "remote-agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  objstore.yml: |
+    type: {{ .Values.thanosSidecar.objstore.type }}
+    config:
+      bucket: {{ .Values.centralStack.minioBucket | quote }}
+      endpoint: {{ .Values.centralStack.minioEndpoint }}
+      access_key: {{ .Values.centralStack.minioAccessKey }}
+      secret_key: {{ .Values.centralStack.minioSecretKey }}
+      insecure: {{ .Values.thanosSidecar.objstore.config.insecure }}
+      signature_version2: {{ .Values.thanosSidecar.objstore.config.signature_version2 }}
+      http_config:
+        idle_conn_timeout: {{ .Values.thanosSidecar.objstore.config.http_config.idle_conn_timeout }}
+        response_header_timeout: {{ .Values.thanosSidecar.objstore.config.http_config.response_header_timeout }}
+        insecure_skip_verify: {{ .Values.thanosSidecar.objstore.config.http_config.insecure_skip_verify }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "remote-agent.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    {{- include "remote-agent.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, nodes/proxy, nodes/metrics, services, endpoints, pods]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions, networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - nonResourceURLs: [/metrics, /metrics/cadvisor]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-prometheus
+  labels:
+    {{- include "remote-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "remote-agent.labels" . | nindent 4 }}
+    app: prometheus
+    thanos-store-api: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+    - name: grpc
+      port: 10901
+      targetPort: 10901
+  selector:
+    app: prometheus
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "remote-agent.labels" . | nindent 4 }}
+    app: prometheus
+    thanos-store-api: "true"
+spec:
+  serviceName: prometheus
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        thanos-store-api: "true"
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time={{ .Values.prometheus.retention }}"
+            - "--storage.tsdb.min-block-duration=2h"
+            - "--storage.tsdb.max-block-duration=2h"
+            - "--web.enable-lifecycle"
+            - "--web.enable-admin-api"
+          ports:
+            - containerPort: 9090
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+        - name: thanos-sidecar
+          image: {{ .Values.thanosSidecar.image.repository }}:{{ .Values.thanosSidecar.image.tag }}
+          args:
+            - "sidecar"
+            - "--tsdb.path=/prometheus"
+            - "--prometheus.url=http://localhost:9090"
+            - "--objstore.config-file=/etc/thanos/objstore.yml"
+            - "--grpc-address=0.0.0.0:10901"
+            - "--http-address=0.0.0.0:10902"
+          ports:
+            - containerPort: 10901
+              name: grpc
+            - containerPort: 10902
+              name: http
+          resources:
+            {{- toYaml .Values.thanosSidecar.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /prometheus
+            - name: thanos-config
+              mountPath: /etc/thanos
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: thanos-config
+          secret:
+            secretName: thanos-objstore-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.prometheus.persistence.storageClass }}
+        storageClassName: {{ .Values.prometheus.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.prometheus.persistence.size }}

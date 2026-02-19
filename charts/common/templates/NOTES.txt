@@ -1,0 +1,36 @@
+Observability Stack deployed.
+
+  Namespace: {{ .Release.Namespace }}
+  Release:   {{ .Release.Name }}
+
+Post-install verification:
+
+  kubectl get pods -n {{ .Release.Namespace }} -o wide
+  kubectl get pvc -n {{ .Release.Namespace }}
+
+  # Grafana
+  kubectl port-forward svc/{{ .Release.Name }}-grafana 3000:80 -n {{ .Release.Namespace }}
+
+  # Thanos
+  kubectl port-forward svc/thanos-query 9090:9090 -n {{ .Release.Namespace }}
+
+  # Loki
+  kubectl exec -n {{ .Release.Namespace }} deploy/loki-querier -- wget -qO- http://loki:3100/ready
+
+  # Tempo
+  kubectl exec -n {{ .Release.Namespace }} deploy/tempo-query-frontend -- wget -qO- http://localhost:3200/ready
+
+Secrets:
+
+  kubectl get secret grafana-secrets -n {{ .Release.Namespace }}
+  kubectl get secret ingress-internal-tls -n {{ .Release.Namespace }}
+
+Datasource check:
+
+  curl -s http://localhost:3000/api/datasources -H "Authorization: Bearer <API_KEY>" | jq '.[].name'
+
+Notes:
+  - Thanos Compactor must be exactly 1 replica or you risk data corruption.
+  - Loki Ingester WAL must flush before pod termination.
+  - Prometheus keeps 4h locally, Thanos handles long-term storage.
+  - Deploy alerts with: make alerts-deploy DOMAIN=<domain>

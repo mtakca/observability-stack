@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observability Stack Values",
+  "description": "Schema for validating values.yaml of the observability-stack umbrella chart",
+  "type": "object",
+  "required": ["global", "common"],
+  "properties": {
+    "global": {
+      "type": "object",
+      "required": ["namespace", "ingressCerts", "objectStorage"],
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "default": "observability",
+          "description": "Target namespace for all observability resources"
+        },
+        "ingressCerts": {
+          "type": "object",
+          "required": ["internal"],
+          "properties": {
+            "internal": {
+              "type": "object",
+              "required": ["crt", "key"],
+              "properties": {
+                "crt": {
+                  "type": "string",
+                  "minLength": 10,
+                  "description": "Base64-encoded TLS certificate"
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 10,
+                  "description": "Base64-encoded TLS private key"
+                }
+              }
+            }
+          }
+        },
+        "objectStorage": {
+          "type": "object",
+          "required": ["endpoint", "accessKey", "secretKey"],
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "minLength": 3,
+              "description": "S3-compatible endpoint (e.g., minio-svc:9000)"
+            },
+            "accessKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "S3 access key"
+            },
+            "secretKey": {
+              "type": "string",
+              "minLength": 1,
+              "description": "S3 secret key"
+            }
+          }
+        }
+      }
+    },
+    "common": {
+      "type": "object",
+      "required": ["postgres", "grafana"],
+      "properties": {
+        "postgres": {
+          "type": "object",
+          "required": ["username", "password"],
+          "properties": {
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string", "minLength": 8, "description": "Minimum 8 characters" },
+            "storageSize": { "type": "string", "pattern": "^[0-9]+[MGT]i$" },
+            "resources": { "$ref": "#/$defs/resources" }
+          }
+        },
+        "grafana": {
+          "type": "object",
+          "required": ["admin_password"],
+          "properties": {
+            "admin_password": { "type": "string", "minLength": 8 },
+            "alerting": {
+              "type": "object",
+              "properties": {
+                "createConfigMap": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "grafana": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "autoscaling": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minReplicas": { "type": "integer", "minimum": 1 },
+            "maxReplicas": { "type": "integer", "minimum": 1 },
+            "targetCPU": { "type": "string" },
+            "targetMemory": { "type": "string" }
+          }
+        },
+        "resources": { "$ref": "#/$defs/resources" },
+        "ingress": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hosts": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1
+            }
+          }
+        }
+      }
+    },
+    "thanos-stack": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "objstore": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["s3", "gcs", "azure"] },
+            "config": {
+              "type": "object",
+              "required": ["bucket"],
+              "properties": {
+                "bucket": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "prometheus": {
+          "type": "object",
+          "properties": {
+            "retention": {
+              "type": "string",
+              "pattern": "^[0-9]+[hd]$",
+              "description": "Keep short (e.g., 4h) — Thanos handles long-term"
+            }
+          }
+        },
+        "compactor": {
+          "type": "object",
+          "properties": {
+            "replicas": {
+              "type": "integer",
+              "maximum": 1,
+              "description": "MUST be 1. Multiple compactors corrupt data."
+            }
+          }
+        }
+      }
+    },
+    "logging-stack": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "loki": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "image": {
+              "type": "object",
+              "properties": {
+                "repository": { "type": "string" },
+                "tag": { "type": "string", "not": { "const": "latest" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tracing-stack": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "tempo": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "replicaCount": {
+              "type": "object",
+              "properties": {
+                "compactor": {
+                  "type": "integer",
+                  "maximum": 1,
+                  "description": "MUST be 1 — same reason as Thanos compactor"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "promtail": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "prometheus-node-exporter": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "prometheus-blackbox-exporter": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "kube-state-metrics": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "alertmanager": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "resources": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "object",
+          "properties": {
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "cpu": { "type": "string" },
+            "memory": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

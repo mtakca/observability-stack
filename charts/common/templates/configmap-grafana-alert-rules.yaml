@@ -1,0 +1,14 @@
+{{- if .Values.grafana.alerting.createConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alert-rules
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    app: grafana
+data:
+  alerting.yaml: |
+    {{- if and .Values.grafana.alerting (index .Values.grafana.alerting "rules.yaml") }}
+    {{- toYaml (index .Values.grafana.alerting "rules.yaml") | nindent 4 }}
+    {{- end }}
+{{- end }}

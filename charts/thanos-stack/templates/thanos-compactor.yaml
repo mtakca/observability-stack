@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thanos-compactor
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: thanos-compactor
+    component: compactor
+spec:
+  serviceName: thanos-compactor
+  replicas: 1  # Only one compactor should run at a time
+  selector:
+    matchLabels:
+      app: thanos-compactor
+  template:
+    metadata:
+      labels:
+        app: thanos-compactor
+        component: compactor
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: thanos-compactor
+        image: {{ .Values.thanosImage }}
+        args:
+          - "compact"
+          - "--wait"
+          - "--wait-interval=30s"
+          - "--consistency-delay=30m"
+          - "--retention.resolution-raw=2d"
+          - "--retention.resolution-5m=14d"
+          - "--retention.resolution-1h=30d"
+          - "--objstore.config-file=/etc/thanos/objstore.yml"
+          - "--data-dir=/var/thanos/compactor"
+          - "--debug.accept-malformed-index"
+          - "--log.level=info"
+          - "--compact.concurrency=1"
+          - "--downsample.concurrency=1"
+        ports:
+        - containerPort: 10902
+          name: http
+        volumeMounts:
+        {{- if .Values.compactor.persistence.enabled }}
+        - name: data
+          mountPath: /var/thanos/compactor
+        {{- else }}
+        - name: temp-storage
+          mountPath: /var/thanos/compactor
+        {{- end }}
+        - name: objstore-config
+          mountPath: /etc/thanos
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 10902
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 8
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 10902
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 20
+      volumes:
+      - name: objstore-config
+        secret:
+          secretName: thanos-objstore-config
+      {{- if not .Values.compactor.persistence.enabled }}
+      - name: temp-storage
+        emptyDir: {}
+      {{- end }}
+  {{- if .Values.compactor.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      {{- if and .Values.compactor.persistence .Values.compactor.persistence.storageClass }}
+      storageClassName: {{ .Values.compactor.persistence.storageClass }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.compactor.persistence.size | default "5Gi" }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-compactor
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: thanos-compactor
+spec:
+  selector:
+    app: thanos-compactor
+  ports:
+  - name: http
+    port: 10902
+    targetPort: 10902

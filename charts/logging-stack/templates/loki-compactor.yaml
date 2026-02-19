@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki-compactor
+  namespace: {{ .Values.global.namespace | default "observability" }}
+  labels:
+    {{- include "common.labels" . | nindent 4 }}
+    app: loki
+    component: compactor
+spec:
+  replicas: 1  # Must be 1 for compactor
+  serviceName: loki-compactor-headless
+  selector:
+    matchLabels:
+      app: loki
+      component: compactor
+  template:
+    metadata:
+      labels:
+        {{- include "common.labels" . | nindent 8 }}
+        app: loki
+        component: compactor
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/loki-config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: loki
+      containers:
+        - name: compactor
+          image: {{ .Values.loki.image.repository }}:{{ .Values.loki.image.tag }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=compactor
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+            - name: memberlist
+              containerPort: 7946
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: data
+              mountPath: /tmp/loki
+          resources:
+            {{- toYaml (.Values.loki.compactor | default dict).resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+  {{- if (.Values.loki.compactor | default dict).persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: {{ (.Values.loki.compactor | default dict).persistence.storageClass | default "longhorn" }}
+        resources:
+          requests:
+            storage: {{ (.Values.loki.compactor | default dict).persistence.size | default "10Gi" }}
+  {{- else }}
+        - name: data
+          emptyDir: {}
+  {{- end }}
